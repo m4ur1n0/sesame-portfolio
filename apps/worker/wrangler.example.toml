@@ -1,0 +1,18 @@
+name = "__PROJECT_SLUG__-worker"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+
+# account_id = "__CLOUDFLARE_ACCOUNT_ID__"
+
+[vars]
+PUBLIC_SITE_URL = "https://__DOMAIN__"
+ENVIRONMENT = "production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "__PROJECT_SLUG__-db"
+database_id = "__D1_DATABASE_ID__"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "__PROJECT_SLUG__-media"
