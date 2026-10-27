@@ -1,16 +1,22 @@
 // all placeholder content the site owner should replace lives here
+
+// controls where the paintbrush cursor effect appears
+// "all-pages" | "home-only" | "disabled"
+export type PaintScope = "all-pages" | "home-only" | "disabled";
+
 export const SITE = {
-  name: "Artist Name",
-  tagline: "Painter",
-  bio: "A short artist bio goes here — a sentence or two about your practice, background, and the work you make. This text appears on the home page and contact page.",
-  email: "hello@artistname.com",
-  location: "City, State",
+  paintEffectScope: "all-pages" as PaintScope,
+  name: "Sesame Campbell",
+  tagline: "Artist, Advisor, Advocate",
+  bio: "Sesame Campbell is a fine artist from upstate New York, specializing in painting and colored pencil rendering.",
+  email: "sesamecity@gmail.com",
+  location: "Stephentown, NY",
   instagram: "",
   twitter: "",
-  copyright: `© ${new Date().getFullYear()} Artist Name. All rights reserved.`,
+  copyright: `© ${new Date().getFullYear()} Sesame Campbell. All rights reserved.`,
 
   // home page hero text
-  heroHeadline: "Work that takes its time.",
+  heroHeadline: "Art with inspiration...",
   heroSubtext:
     "Original paintings available for sale, commission, and inquiry.",
 
@@ -24,5 +30,5 @@ export const SITE = {
 
   // contact page intro
   contactIntro:
-    "Questions about a piece, commission inquiries, or just want to say hello — use the form below.",
+    "Use the form below for questions about a piece, commission inquiries, or if you just want to say hello.",
 } as const;

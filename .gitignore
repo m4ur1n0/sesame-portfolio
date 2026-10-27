@@ -52,3 +52,5 @@ apps/worker/.wrangler/
 
 # worker build artifacts
 apps/worker/node_modules/
+*.md
+!README.md
