@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { mediaUrl } from "@/lib/api";
+import { mediaUrl } from "@/lib/media";
 import { AvailabilityBadge } from "@/components/AvailabilityBadge";
 import { Lightbox } from "@/components/Lightbox";
 import { Button } from "@/components/ui/button";
@@ -15,22 +15,8 @@ interface Props {
 export function ArtworkDetail({ artwork }: Props) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  // build full image key list
-  const additionalIds: string[] = (() => {
-    if (!artwork.additional_media_ids) return [];
-    try {
-      return JSON.parse(artwork.additional_media_ids) as string[];
-    } catch {
-      return [];
-    }
-  })();
-
-  const allKeys = [
-    ...(artwork.hero_media_id ? [artwork.hero_media_id] : []),
-    ...additionalIds,
-  ];
-
-  const heroKey = artwork.hero_media_id ?? null;
+  const [hero, ...additional] = artwork.images;
+  const count = artwork.images.length;
 
   const canPurchase =
     artwork.availability === "available" || artwork.availability === "inquire";
@@ -40,8 +26,7 @@ export function ArtworkDetail({ artwork }: Props) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
         {/* images */}
         <div className="space-y-3">
-          {/* hero image */}
-          {heroKey ? (
+          {hero ? (
             <button
               className="w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] rounded"
               aria-label="View full image"
@@ -49,8 +34,10 @@ export function ArtworkDetail({ artwork }: Props) {
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={mediaUrl(heroKey)}
-                alt={artwork.title}
+                src={mediaUrl(hero, "large")}
+                width={hero.w}
+                height={hero.h}
+                alt={hero.alt || artwork.title}
                 className="w-full rounded object-contain max-h-[70vh] bg-[var(--color-surface-raised)] cursor-zoom-in"
               />
             </button>
@@ -60,21 +47,21 @@ export function ArtworkDetail({ artwork }: Props) {
             </div>
           )}
 
-          {/* additional thumbnails */}
-          {additionalIds.length > 0 && (
+          {additional.length > 0 && (
             <div className="flex gap-2 flex-wrap">
-              {additionalIds.map((key, i) => (
+              {additional.map((img, i) => (
                 <button
-                  key={key}
+                  key={img.id}
                   onClick={() => setLightboxIndex(i + 1)}
                   aria-label={`View image ${i + 2}`}
                   className="w-16 h-16 overflow-hidden rounded border border-[var(--color-border)] hover:border-[var(--color-border-strong)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={mediaUrl(key)}
-                    alt={`${artwork.title} detail ${i + 2}`}
+                    src={mediaUrl(img, "thumb")}
+                    alt={img.alt || `${artwork.title}, image ${i + 2}`}
                     className="w-full h-full object-cover"
+                    loading="lazy"
                   />
                 </button>
               ))}
@@ -95,7 +82,6 @@ export function ArtworkDetail({ artwork }: Props) {
               <AvailabilityBadge availability={artwork.availability} className="mt-1 shrink-0" />
             </div>
 
-            {/* metadata */}
             <dl className="mt-5 space-y-2 text-sm">
               {artwork.year && (
                 <div className="flex gap-3">
@@ -124,35 +110,23 @@ export function ArtworkDetail({ artwork }: Props) {
             </dl>
           </div>
 
-          {/* description */}
-          {artwork.excerpt && (
-            <div>
-              <p className="text-[var(--color-muted)] leading-relaxed">{artwork.excerpt}</p>
-            </div>
+          {artwork.description && (
+            <p className="text-[var(--color-muted)] leading-relaxed whitespace-pre-line">
+              {artwork.description}
+            </p>
           )}
 
-          {artwork.body_html && (
-            <div
-              className="prose prose-sm text-[var(--color-muted)] max-w-none"
-              dangerouslySetInnerHTML={{ __html: artwork.body_html }}
-            />
-          )}
-
-          {/* artist notes */}
           {artwork.artist_notes && (
             <div className="border-t border-[var(--color-border)] pt-5">
-              <h2
-                className="text-sm font-medium text-[var(--color-muted)] mb-2 uppercase tracking-wider"
-              >
+              <h2 className="text-sm font-medium text-[var(--color-muted)] mb-2 uppercase tracking-wider">
                 Artist Notes
               </h2>
-              <p className="text-sm text-[var(--color-muted)] leading-relaxed">
+              <p className="text-sm text-[var(--color-muted)] leading-relaxed whitespace-pre-line">
                 {artwork.artist_notes}
               </p>
             </div>
           )}
 
-          {/* purchase / inquiry */}
           {canPurchase && (
             <div className="border-t border-[var(--color-border)] pt-5 space-y-3">
               {artwork.purchase_instructions && (
@@ -161,12 +135,8 @@ export function ArtworkDetail({ artwork }: Props) {
                 </p>
               )}
               <Button asChild>
-                <Link
-                  href={`/contact?artwork=${encodeURIComponent(artwork.slug)}&title=${encodeURIComponent(artwork.title)}`}
-                >
-                  {artwork.availability === "available"
-                    ? "Purchase or Inquire"
-                    : "Inquire"}
+                <Link href={`/contact?artwork=${encodeURIComponent(artwork.slug)}`}>
+                  {artwork.availability === "available" ? "Purchase or Inquire" : "Inquire"}
                 </Link>
               </Button>
             </div>
@@ -174,23 +144,14 @@ export function ArtworkDetail({ artwork }: Props) {
         </div>
       </div>
 
-      {/* lightbox */}
-      {lightboxIndex !== null && allKeys.length > 0 && (
+      {lightboxIndex !== null && count > 0 && (
         <Lightbox
-          keys={allKeys}
+          images={artwork.images}
           currentIndex={lightboxIndex}
           alt={artwork.title}
           onClose={() => setLightboxIndex(null)}
-          onPrev={() =>
-            setLightboxIndex((i) =>
-              i !== null ? (i - 1 + allKeys.length) % allKeys.length : 0,
-            )
-          }
-          onNext={() =>
-            setLightboxIndex((i) =>
-              i !== null ? (i + 1) % allKeys.length : 0,
-            )
-          }
+          onPrev={() => setLightboxIndex((i) => ((i ?? 0) - 1 + count) % count)}
+          onNext={() => setLightboxIndex((i) => ((i ?? 0) + 1) % count)}
         />
       )}
     </div>

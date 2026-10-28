@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import { ContactForm } from "@/components/ContactForm";
+import { env, getPublishedBySlug } from "@/lib/db";
 import { SITE } from "@/lib/site";
 
+export const dynamic = "force-dynamic";
+
 interface Props {
-  searchParams: Promise<{ artwork?: string; title?: string }>;
+  searchParams: Promise<{ artwork?: string }>;
 }
 
 export const metadata: Metadata = {
@@ -12,7 +15,9 @@ export const metadata: Metadata = {
 };
 
 export default async function ContactPage({ searchParams }: Props) {
-  const { artwork, title } = await searchParams;
+  const { artwork: slug } = await searchParams;
+  // title comes from the database, never the URL, so links can't put arbitrary text on the page
+  const artwork = slug ? await getPublishedBySlug(slug) : null;
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-16">
@@ -27,7 +32,10 @@ export default async function ContactPage({ searchParams }: Props) {
           {SITE.contactIntro}
         </p>
 
-        <ContactForm artworkRef={artwork} artworkTitle={title} />
+        <ContactForm
+          turnstileSiteKey={env().TURNSTILE_SITE_KEY}
+          artwork={artwork ? { slug: artwork.slug, title: artwork.title } : undefined}
+        />
 
         <div className="mt-12 pt-8 border-t border-[var(--color-border)]">
           <p className="text-sm text-[var(--color-muted)]">

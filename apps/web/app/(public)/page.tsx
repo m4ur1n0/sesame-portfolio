@@ -1,13 +1,12 @@
 import Link from "next/link";
-import { getFeaturedArtworks, isApiConfigured } from "@/lib/api";
+import { listPublished } from "@/lib/db";
 import { ArtworkCard } from "@/components/ArtworkCard";
 import { SITE } from "@/lib/site";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const featured = await getFeaturedArtworks();
-  const apiReady = isApiConfigured();
+  const featured = (await listPublished()).filter((a) => a.featured).slice(0, 6);
 
   return (
     <div>
@@ -41,7 +40,7 @@ export default async function HomePage() {
       </section>
 
       {/* featured works */}
-      {apiReady && (
+      {featured.length > 0 && (
         <section className="max-w-6xl mx-auto px-6 pb-20">
           <div className="flex items-baseline justify-between mb-8">
             <h2
@@ -58,17 +57,11 @@ export default async function HomePage() {
             </Link>
           </div>
 
-          {featured.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-10">
-              {featured.map((artwork, i) => (
-                <ArtworkCard key={artwork.id} artwork={artwork} priority={i < 3} />
-              ))}
-            </div>
-          ) : (
-            <div className="py-16 text-center text-[var(--color-muted)]">
-              <p>No featured works yet.</p>
-            </div>
-          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-10">
+            {featured.map((artwork, i) => (
+              <ArtworkCard key={artwork.id} artwork={artwork} priority={i < 3} />
+            ))}
+          </div>
         </section>
       )}
 

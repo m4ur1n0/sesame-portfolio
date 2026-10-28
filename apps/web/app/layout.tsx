@@ -16,6 +16,8 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE.url),
+  openGraph: { siteName: SITE.name, locale: "en_US", type: "website" },
   title: {
     default: SITE.name,
     template: `%s — ${SITE.name}`,

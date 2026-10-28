@@ -1,23 +1,24 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getPurchaseArtworks, isApiConfigured } from "@/lib/api";
-import { mediaUrl } from "@/lib/api";
+import { listPublished } from "@/lib/db";
+import { mediaUrl } from "@/lib/media";
 import { AvailabilityBadge } from "@/components/AvailabilityBadge";
 import { SITE } from "@/lib/site";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Purchase",
   description: `Original works available for purchase by ${SITE.name}.`,
 };
 
-export const revalidate = 60;
-
 export default async function PurchasePage() {
-  const artworks = await getPurchaseArtworks();
-  const apiReady = isApiConfigured();
-
-  const available = artworks.filter((a) => a.availability === "available");
-  const other = artworks.filter((a) => a.availability !== "available");
+  // availability alone decides where a work appears; "not for sale" stays gallery-only
+  const artworks = (await listPublished()).filter((a) => a.availability !== "not_for_sale");
+  const available = artworks.filter(
+    (a) => a.availability === "available" || a.availability === "inquire",
+  );
+  const other = artworks.filter((a) => a.availability === "reserved" || a.availability === "sold");
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-16">
@@ -33,19 +34,7 @@ export default async function PurchasePage() {
         </p>
       </header>
 
-      {!apiReady && (
-        <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-6 py-10 text-center">
-          <p className="text-[var(--color-muted)] text-sm">
-            API not configured. Set{" "}
-            <code className="font-mono text-xs bg-[var(--color-border)] px-1 rounded">
-              NEXT_PUBLIC_API_BASE_URL
-            </code>{" "}
-            to see available works.
-          </p>
-        </div>
-      )}
-
-      {apiReady && artworks.length === 0 && (
+      {artworks.length === 0 && (
         <div className="py-24 text-center">
           <p className="text-[var(--color-muted)]">No works available at this time.</p>
           <p className="mt-2 text-sm text-[var(--color-subtle)]">
@@ -61,7 +50,7 @@ export default async function PurchasePage() {
         </div>
       )}
 
-      {apiReady && artworks.length > 0 && (
+      {artworks.length > 0 && (
         <div className="space-y-16">
           {/* available works */}
           {available.length > 0 && (
@@ -75,9 +64,7 @@ export default async function PurchasePage() {
               </h2>
               <div className="space-y-0 divide-y divide-[var(--color-border)]">
                 {available.map((artwork) => {
-                  const imgUrl = artwork.hero_media_id
-                    ? mediaUrl(artwork.hero_media_id)
-                    : null;
+                  const img = artwork.images[0];
                   return (
                     <div
                       key={artwork.id}
@@ -86,13 +73,14 @@ export default async function PurchasePage() {
                       {/* thumbnail */}
                       <Link href={`/gallery/${artwork.slug}`} tabIndex={-1} aria-hidden="true">
                         <div className="w-full aspect-[4/3] sm:w-48 sm:h-36 overflow-hidden rounded bg-[var(--color-surface-raised)] shrink-0">
-                          {imgUrl ? (
+                          {img ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              src={imgUrl}
-                              alt={artwork.title}
+                              src={mediaUrl(img, "thumb")}
+                              alt={img.alt || artwork.title}
                               className="w-full h-full object-cover"
                               loading="lazy"
+                              decoding="async"
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
@@ -129,18 +117,24 @@ export default async function PurchasePage() {
                           </p>
                         )}
 
-                        {artwork.excerpt && (
+                        {artwork.description && (
                           <p className="text-sm text-[var(--color-muted)] leading-relaxed line-clamp-2">
-                            {artwork.excerpt}
+                            {artwork.description}
+                          </p>
+                        )}
+
+                        {artwork.purchase_instructions && (
+                          <p className="text-sm text-[var(--color-muted)]">
+                            {artwork.purchase_instructions}
                           </p>
                         )}
 
                         <div className="flex flex-wrap gap-3 items-center pt-1">
                           <Link
-                            href={`/contact?artwork=${encodeURIComponent(artwork.slug)}&title=${encodeURIComponent(artwork.title)}`}
+                            href={`/contact?artwork=${encodeURIComponent(artwork.slug)}`}
                             className="inline-flex items-center px-4 py-2 text-sm bg-[var(--color-text)] text-white rounded hover:opacity-80 transition-opacity"
                           >
-                            Purchase or Inquire
+                            {artwork.availability === "available" ? "Purchase or Inquire" : "Inquire"}
                           </Link>
                           <Link
                             href={`/gallery/${artwork.slug}`}
@@ -169,9 +163,7 @@ export default async function PurchasePage() {
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {other.map((artwork) => {
-                  const imgUrl = artwork.hero_media_id
-                    ? mediaUrl(artwork.hero_media_id)
-                    : null;
+                  const img = artwork.images[0];
                   return (
                     <Link
                       key={artwork.id}
@@ -179,13 +171,14 @@ export default async function PurchasePage() {
                       className="group block"
                     >
                       <div className="aspect-[4/3] overflow-hidden rounded bg-[var(--color-surface-raised)]">
-                        {imgUrl ? (
+                        {img ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={imgUrl}
-                            alt={artwork.title}
+                            src={mediaUrl(img, "thumb")}
+                            alt={img.alt || artwork.title}
                             className="w-full h-full object-cover opacity-70 group-hover:opacity-90 transition-opacity"
                             loading="lazy"
+                            decoding="async"
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">

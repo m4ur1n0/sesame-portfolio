@@ -1,71 +1,49 @@
-export type ContentType = "artwork" | "post";
+export const AVAILABILITY = [
+  "available",
+  "inquire",
+  "reserved",
+  "sold",
+  "not_for_sale",
+] as const;
 
-export type ArtworkAvailability =
-  | "available"
-  | "sold"
-  | "reserved"
-  | "not_for_sale"
-  | "inquire";
+export type Availability = (typeof AVAILABILITY)[number];
 
-export type PostStatus = "draft" | "published";
-
-export interface Media {
+// one uploaded image; stored in R2 as `${id}/thumb.${ext}` and `${id}/large.${ext}`
+export interface ArtworkImage {
   id: string;
-  key: string;
-  filename: string;
-  mime_type: string;
-  size_bytes: number;
-  alt?: string;
-  caption?: string;
-  created_at: string;
+  ext: "webp" | "jpg";
+  w: number; // large variant dimensions
+  h: number;
+  alt: string;
 }
 
 export interface Artwork {
   id: string;
-  title: string;
   slug: string;
-  status: PostStatus;
-  content_type: ContentType;
-  excerpt?: string;
-  body_json?: string;
-  body_html?: string;
-  hero_media_id?: string;
-  year?: string;
-  medium?: string;
-  dimensions?: string;
-  price?: string;
-  availability: ArtworkAvailability;
-  gallery_visible: number;
-  purchase_visible: number;
-  display_order: number;
-  featured: number;
-  additional_media_ids?: string;
-  artist_notes?: string;
-  purchase_instructions?: string;
-  published_at?: string;
-  created_at: string;
+  title: string;
+  year: string | null;
+  medium: string | null;
+  dimensions: string | null;
+  price: string | null;
+  description: string | null;
+  artist_notes: string | null;
+  purchase_instructions: string | null;
+  availability: Availability;
+  images: ArtworkImage[];
+  published: boolean;
+  featured: boolean;
+  sort_order: number;
+  published_at: string | null;
   updated_at: string;
 }
 
-export interface Post {
+export interface Inquiry {
   id: string;
-  title: string;
-  slug: string;
-  status: PostStatus;
-  content_type: ContentType;
-  excerpt?: string;
-  body_json?: string;
-  body_html?: string;
-  hero_media_id?: string;
-  published_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ContactSubmission {
   name: string;
   email: string;
-  subject?: string;
+  subject: string | null;
   message: string;
-  artwork_ref?: string;
+  artwork_slug: string | null;
+  read_at: string | null;
+  created_at: string;
 }

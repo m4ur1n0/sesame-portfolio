@@ -1,30 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { adminVerify } from "@/lib/api";
+import { loginAction } from "@/app/admin/actions";
 import { SITE } from "@/lib/site";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
-  const [password, setPassword] = useState("");
-  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setState("loading");
-
-    const ok = await adminVerify(password);
-    if (ok) {
-      sessionStorage.setItem("admin_token", password);
-      router.replace("/admin");
-    } else {
-      setState("error");
-    }
-  }
+  const [state, action, pending] = useActionState(loginAction, { error: "" });
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-6">
@@ -36,28 +20,27 @@ export default function AdminLoginPage() {
           {SITE.name} — Admin
         </h1>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form action={action} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="password">Password</Label>
             <Input
               id="password"
+              name="password"
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
               required
-              disabled={state === "loading"}
+              disabled={pending}
             />
           </div>
 
-          {state === "error" && (
+          {state.error && (
             <p role="alert" className="text-sm text-red-600">
-              Incorrect password.
+              {state.error}
             </p>
           )}
 
-          <Button type="submit" disabled={state === "loading"} className="w-full">
-            {state === "loading" ? "Signing in…" : "Sign in"}
+          <Button type="submit" disabled={pending} className="w-full">
+            {pending ? "Signing in…" : "Sign in"}
           </Button>
         </form>
       </div>

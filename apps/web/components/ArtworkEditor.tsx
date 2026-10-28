@@ -1,388 +1,423 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { ChevronLeft, ChevronRight, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiUpload, mediaUrl } from "@/lib/api";
-import type { ArtworkPayload } from "@/lib/api";
-import type { Artwork, ArtworkAvailability } from "@/lib/types";
+import { labels } from "@/components/AvailabilityBadge";
+import { saveArtwork, type ArtworkInput } from "@/app/admin/actions";
+import { mediaUrl } from "@/lib/media";
+import { prepareImage, type PreparedImage } from "@/lib/resize";
+import { AVAILABILITY, type Artwork, type ArtworkImage, type Availability } from "@/lib/types";
 
-interface Props {
-  initial?: Partial<Artwork>;
-  onSave: (payload: ArtworkPayload) => Promise<void>;
-  saving: boolean;
+// an image is either already in storage or resized locally and waiting for Save
+interface ImageItem {
+  key: string;
+  alt: string;
+  preview: string;
+  saved?: ArtworkImage;
+  pending?: PreparedImage;
 }
 
 function slugify(str: string) {
   return str
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .trim();
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
-export function ArtworkEditor({ initial, onSave, saving }: Props) {
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [slug, setSlug] = useState(initial?.slug ?? "");
-  const [slugTouched, setSlugTouched] = useState(!!initial?.slug);
-  const [year, setYear] = useState(initial?.year ?? "");
-  const [medium, setMedium] = useState(initial?.medium ?? "");
-  const [dimensions, setDimensions] = useState(initial?.dimensions ?? "");
-  const [price, setPrice] = useState(initial?.price ?? "");
-  const [availability, setAvailability] = useState<ArtworkAvailability>(
+async function upload(img: PreparedImage): Promise<ArtworkImage> {
+  const form = new FormData();
+  form.append("thumb", img.thumb);
+  form.append("large", img.large);
+  const res = await fetch("/admin/upload", { method: "POST", body: form });
+  if (!res.ok) throw new Error(`Image upload failed (${res.status}).`);
+  const { id, ext } = (await res.json()) as { id: string; ext: "webp" | "jpg" };
+  return { id, ext, w: img.w, h: img.h, alt: "" };
+}
+
+export function ArtworkEditor({ initial }: { initial?: Artwork }) {
+  const [fields, setFields] = useState({
+    title: initial?.title ?? "",
+    slug: initial?.slug ?? "",
+    year: initial?.year ?? "",
+    medium: initial?.medium ?? "",
+    dimensions: initial?.dimensions ?? "",
+    price: initial?.price ?? "",
+    description: initial?.description ?? "",
+    artist_notes: initial?.artist_notes ?? "",
+    purchase_instructions: initial?.purchase_instructions ?? "",
+  });
+  const [availability, setAvailability] = useState<Availability>(
     initial?.availability ?? "available",
   );
-  const [excerpt, setExcerpt] = useState(initial?.excerpt ?? "");
-  const [artistNotes, setArtistNotes] = useState(initial?.artist_notes ?? "");
-  const [purchaseInstructions, setPurchaseInstructions] = useState(
-    initial?.purchase_instructions ?? "",
+  const [published, setPublished] = useState(initial?.published ?? false);
+  const [featured, setFeatured] = useState(initial?.featured ?? false);
+  const [slugTouched, setSlugTouched] = useState(Boolean(initial));
+  const [images, setImages] = useState<ImageItem[]>(
+    () =>
+      initial?.images.map((img) => ({
+        key: img.id,
+        alt: img.alt,
+        preview: mediaUrl(img, "thumb"),
+        saved: img,
+      })) ?? [],
   );
-  const [galleryVisible, setGalleryVisible] = useState(
-    initial?.gallery_visible !== 0,
-  );
-  const [purchaseVisible, setPurchaseVisible] = useState(
-    initial?.purchase_visible !== 0,
-  );
-  const [featured, setFeatured] = useState(initial?.featured === 1);
-  const [displayOrder, setDisplayOrder] = useState(
-    String(initial?.display_order ?? 0),
-  );
-  const [status, setStatus] = useState<"draft" | "published">(
-    initial?.status ?? "draft",
-  );
-
-  // image state
-  const [heroMediaId, setHeroMediaId] = useState(initial?.hero_media_id ?? "");
-  const [additionalIds, setAdditionalIds] = useState<string[]>(() => {
-    if (!initial?.additional_media_ids) return [];
-    try { return JSON.parse(initial.additional_media_ids) as string[]; } catch { return []; }
-  });
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState("");
-
+  const [preparing, setPreparing] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [saving, startSaving] = useTransition();
 
-  function handleTitleChange(val: string) {
-    setTitle(val);
-    if (!slugTouched) setSlug(slugify(val));
+  const busy = saving || preparing > 0;
+
+  function set(name: keyof typeof fields, value: string) {
+    setFields((f) => ({
+      ...f,
+      [name]: value,
+      ...(name === "title" && !slugTouched ? { slug: slugify(value) } : {}),
+    }));
+    setMessage("");
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>, role: "hero" | "additional") {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const token = sessionStorage.getItem("admin_token") ?? "";
-    setUploading(true);
-    setUploadError("");
-    try {
-      const result = await apiUpload(file, token);
-      if (role === "hero") {
-        setHeroMediaId(result.id);
-      } else {
-        setAdditionalIds((prev) => [...prev, result.id]);
+  async function addFiles(files: FileList) {
+    setError("");
+    for (const file of Array.from(files)) {
+      setPreparing((n) => n + 1);
+      try {
+        const prepared = await prepareImage(file);
+        setImages((list) => [
+          ...list,
+          {
+            key: crypto.randomUUID(),
+            alt: "",
+            preview: URL.createObjectURL(prepared.thumb),
+            pending: prepared,
+          },
+        ]);
+      } catch {
+        setError(`Couldn't read "${file.name}". Try a JPEG or PNG.`);
+      } finally {
+        setPreparing((n) => n - 1);
       }
-    } catch {
-      setUploadError("Upload failed. Please try again.");
-    } finally {
-      setUploading(false);
-      e.target.value = "";
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  function moveImage(from: number, to: number) {
+    setImages((list) => {
+      const next = [...list];
+      [next[from], next[to]] = [next[to], next[from]];
+      return next;
+    });
+  }
+
+  function removeImage(index: number) {
+    setImages((list) => {
+      const item = list[index];
+      if (item.pending) URL.revokeObjectURL(item.preview);
+      return list.filter((_, i) => i !== index);
+    });
+  }
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!title.trim() || !slug.trim()) {
-      setError("Title and slug are required.");
-      return;
-    }
-    try {
-      await onSave({
-        title: title.trim(),
-        slug: slug.trim(),
-        content_type: "artwork",
-        excerpt: excerpt.trim() || undefined,
-        year: year.trim() || undefined,
-        medium: medium.trim() || undefined,
-        dimensions: dimensions.trim() || undefined,
-        price: price.trim() || undefined,
-        availability,
-        gallery_visible: galleryVisible,
-        purchase_visible: purchaseVisible,
-        featured,
-        display_order: Number(displayOrder) || 0,
-        hero_media_id: heroMediaId || undefined,
-        additional_media_ids: additionalIds,
-        artist_notes: artistNotes.trim() || undefined,
-        purchase_instructions: purchaseInstructions.trim() || undefined,
-        status,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed.");
-    }
+    setMessage("");
+
+    startSaving(async () => {
+      try {
+        // upload pending images first; already-uploaded ones are kept so a retry doesn't re-send them
+        const ready = [...images];
+        for (const [i, item] of ready.entries()) {
+          if (!item.pending) continue;
+          ready[i] = { ...item, saved: await upload(item.pending), pending: undefined };
+          setImages([...ready]);
+        }
+
+        const input: ArtworkInput = {
+          ...fields,
+          availability,
+          published,
+          featured,
+          images: ready.map((item) => ({ ...item.saved!, alt: item.alt.trim() })),
+        };
+        const result = await saveArtwork(initial?.id ?? null, input);
+        if ("error" in result) setError(result.error);
+        else setMessage(published ? "Saved — live on the site." : "Saved as draft.");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Save failed.");
+      }
+    });
   }
+
+  const sectionTitle = "text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8 max-w-2xl">
-      {/* basic info */}
       <section className="space-y-4">
-        <h2 className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">
-          Basic Info
-        </h2>
+        <h2 className={sectionTitle}>Basic Info</h2>
         <div className="space-y-1.5">
           <Label htmlFor="title">Title *</Label>
           <Input
             id="title"
-            value={title}
-            onChange={(e) => handleTitleChange(e.target.value)}
+            value={fields.title}
+            onChange={(e) => set("title", e.target.value)}
             required
+            maxLength={200}
             disabled={saving}
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="slug">Slug *</Label>
+          <Label htmlFor="slug">Web address *</Label>
           <Input
             id="slug"
-            value={slug}
-            onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
+            value={fields.slug}
+            onChange={(e) => {
+              setSlugTouched(true);
+              set("slug", e.target.value.toLowerCase());
+            }}
             required
+            pattern="[a-z0-9]+(-[a-z0-9]+)*"
+            title="Lowercase letters, numbers and single hyphens"
             disabled={saving}
             className="font-mono text-sm"
           />
-          <p className="text-xs text-[var(--color-muted)]">Used in the URL: /gallery/{slug || "slug"}</p>
+          <p className="text-xs text-[var(--color-muted)]">
+            /gallery/{fields.slug || "…"}
+            {initial && " — changing this breaks links people have already shared."}
+          </p>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="excerpt">Short Description</Label>
+          <Label htmlFor="description">Description</Label>
           <Textarea
-            id="excerpt"
-            value={excerpt}
-            onChange={(e) => setExcerpt(e.target.value)}
+            id="description"
+            value={fields.description}
+            onChange={(e) => set("description", e.target.value)}
             rows={3}
+            maxLength={5000}
             disabled={saving}
-            className="resize-none"
-            placeholder="Brief description shown in cards and detail page…"
+            className="resize-y"
+            placeholder="Shown on the artwork page and in link previews…"
           />
         </div>
       </section>
 
-      {/* artwork metadata */}
       <section className="space-y-4">
-        <h2 className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">
-          Artwork Details
-        </h2>
+        <h2 className={sectionTitle}>Artwork Details</h2>
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="year">Year</Label>
-            <Input id="year" value={year} onChange={(e) => setYear(e.target.value)} disabled={saving} placeholder="2024" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="medium">Medium</Label>
-            <Input id="medium" value={medium} onChange={(e) => setMedium(e.target.value)} disabled={saving} placeholder="Oil on canvas" />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="dimensions">Dimensions</Label>
-            <Input id="dimensions" value={dimensions} onChange={(e) => setDimensions(e.target.value)} disabled={saving} placeholder='24" × 36"' />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="price">Price</Label>
-            <Input id="price" value={price} onChange={(e) => setPrice(e.target.value)} disabled={saving} placeholder="$2,400" />
-          </div>
+          {(
+            [
+              ["year", "Year", "2024"],
+              ["medium", "Medium", "Oil on canvas"],
+              ["dimensions", "Dimensions", '24" × 36"'],
+              ["price", "Price", "$2,400"],
+            ] as const
+          ).map(([name, label, placeholder]) => (
+            <div key={name} className="space-y-1.5">
+              <Label htmlFor={name}>{label}</Label>
+              <Input
+                id={name}
+                value={fields[name]}
+                onChange={(e) => set(name, e.target.value)}
+                disabled={saving}
+                placeholder={placeholder}
+              />
+            </div>
+          ))}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="availability">Availability</Label>
           <Select
             value={availability}
-            onValueChange={(v) => setAvailability(v as ArtworkAvailability)}
+            onValueChange={(v) => setAvailability(v as Availability)}
             disabled={saving}
           >
             <SelectTrigger id="availability">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="available">Available</SelectItem>
-              <SelectItem value="sold">Sold</SelectItem>
-              <SelectItem value="reserved">Reserved</SelectItem>
-              <SelectItem value="inquire">Inquire</SelectItem>
-              <SelectItem value="not_for_sale">Not for Sale</SelectItem>
+              {AVAILABILITY.map((a) => (
+                <SelectItem key={a} value={a}>
+                  {labels[a]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-[var(--color-muted)]">
+            Available and Inquire appear for sale on the Purchase page; Reserved and Sold appear
+            there as previous works; Not for Sale is gallery-only.
+          </p>
         </div>
       </section>
 
-      {/* images */}
       <section className="space-y-4">
-        <h2 className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">
-          Images
-        </h2>
-
-        {/* hero image */}
-        <div className="space-y-2">
-          <Label>Primary Image</Label>
-          {heroMediaId && (
-            <div className="flex items-start gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={mediaUrl(heroMediaId)}
-                alt="Primary artwork image"
-                className="w-24 h-24 object-cover rounded border border-[var(--color-border)]"
-              />
-              <button
-                type="button"
-                onClick={() => setHeroMediaId("")}
-                className="text-xs text-red-500 hover:text-red-700"
-              >
-                Remove
-              </button>
-            </div>
-          )}
-          <input
-            type="file"
-            accept="image/*"
-            disabled={uploading || saving}
-            onChange={(e) => handleFileUpload(e, "hero")}
-            className="text-sm text-[var(--color-muted)]"
-          />
-        </div>
-
-        {/* additional images */}
-        <div className="space-y-2">
-          <Label>Additional Images</Label>
-          {additionalIds.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {additionalIds.map((id, i) => (
-                <div key={id} className="relative">
+        <h2 className={sectionTitle}>Images</h2>
+        {images.length > 0 && (
+          <ul className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {images.map((item, i) => (
+              <li key={item.key} className="space-y-1.5">
+                <div className="relative aspect-square rounded border border-[var(--color-border)] overflow-hidden bg-[var(--color-surface-raised)]">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={mediaUrl(id)}
-                    alt={`Additional image ${i + 1}`}
-                    className="w-16 h-16 object-cover rounded border border-[var(--color-border)]"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Remove image"
-                    onClick={() =>
-                      setAdditionalIds((prev) => prev.filter((_, j) => j !== i))
-                    }
-                    className="absolute -top-1 -right-1 w-4 h-4 bg-white border border-[var(--color-border)] rounded-full text-xs text-red-500 flex items-center justify-center hover:bg-red-50"
-                  >
-                    ×
-                  </button>
+                  <img src={item.preview} alt="" className="w-full h-full object-contain" />
+                  {i === 0 && (
+                    <span className="absolute top-1 left-1 text-[10px] uppercase tracking-wide bg-white/90 px-1.5 py-0.5 rounded">
+                      Primary
+                    </span>
+                  )}
+                  {item.pending && (
+                    <span className="absolute bottom-1 left-1 text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded">
+                      Uploads on save
+                    </span>
+                  )}
+                  <div className="absolute top-1 right-1 flex gap-1">
+                    {[
+                      { label: "Move earlier", icon: <ChevronLeft size={14} />, disabled: i === 0, run: () => moveImage(i, i - 1) },
+                      { label: "Move later", icon: <ChevronRight size={14} />, disabled: i === images.length - 1, run: () => moveImage(i, i + 1) },
+                      { label: "Remove image", icon: <X size={14} />, disabled: false, run: () => removeImage(i) },
+                    ].map((b) => (
+                      <button
+                        key={b.label}
+                        type="button"
+                        aria-label={b.label}
+                        onClick={b.run}
+                        disabled={b.disabled || saving}
+                        className="w-6 h-6 flex items-center justify-center rounded bg-white/90 border border-[var(--color-border)] disabled:opacity-30"
+                      >
+                        {b.icon}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
-          <input
-            type="file"
-            accept="image/*"
-            disabled={uploading || saving}
-            onChange={(e) => handleFileUpload(e, "additional")}
-            className="text-sm text-[var(--color-muted)]"
-          />
+                <Input
+                  aria-label={`Alt text for image ${i + 1}`}
+                  placeholder="Describe the image (for screen readers)"
+                  value={item.alt}
+                  maxLength={300}
+                  disabled={saving}
+                  onChange={(e) =>
+                    setImages((list) =>
+                      list.map((it, j) => (j === i ? { ...it, alt: e.target.value } : it)),
+                    )
+                  }
+                  className="text-xs h-8"
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="space-y-1">
+          <label
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!busy) setDragging(true);
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              if (!busy) addFiles(e.dataTransfer.files);
+            }}
+            className={`flex flex-col items-center justify-center gap-1 rounded border-2 border-dashed px-4 py-8 text-sm text-center transition-colors focus-within:ring-2 focus-within:ring-[var(--color-border)] ${
+              busy ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+            } ${
+              dragging
+                ? "border-[var(--color-text)] bg-[var(--color-surface-raised)]"
+                : "border-[var(--color-border)] text-[var(--color-muted)]"
+            }`}
+          >
+            <Upload size={20} />
+            <span>Drag photos here, or click to choose</span>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              disabled={busy}
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files);
+                e.target.value = "";
+              }}
+              className="sr-only"
+            />
+          </label>
+          <p className="text-xs text-[var(--color-muted)]">
+            {preparing > 0
+              ? "Preparing images…"
+              : "Full-size photos are fine — they're resized for the web before uploading. The first image is the primary one."}
+          </p>
         </div>
-
-        {uploading && <p className="text-sm text-[var(--color-muted)]">Uploading…</p>}
-        {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
       </section>
 
-      {/* notes */}
       <section className="space-y-4">
-        <h2 className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">
-          Notes
-        </h2>
+        <h2 className={sectionTitle}>Notes</h2>
         <div className="space-y-1.5">
-          <Label htmlFor="artistNotes">Artist Notes</Label>
+          <Label htmlFor="artist_notes">Artist Notes</Label>
           <Textarea
-            id="artistNotes"
-            value={artistNotes}
-            onChange={(e) => setArtistNotes(e.target.value)}
+            id="artist_notes"
+            value={fields.artist_notes}
+            onChange={(e) => set("artist_notes", e.target.value)}
             rows={3}
+            maxLength={5000}
             disabled={saving}
-            className="resize-none"
+            className="resize-y"
             placeholder="Process notes, inspiration, context…"
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="purchaseInstructions">Purchase Instructions</Label>
+          <Label htmlFor="purchase_instructions">Purchase Instructions</Label>
           <Textarea
-            id="purchaseInstructions"
-            value={purchaseInstructions}
-            onChange={(e) => setPurchaseInstructions(e.target.value)}
+            id="purchase_instructions"
+            value={fields.purchase_instructions}
+            onChange={(e) => set("purchase_instructions", e.target.value)}
             rows={2}
+            maxLength={2000}
             disabled={saving}
-            className="resize-none"
-            placeholder="Shown on the purchase page for this work…"
+            className="resize-y"
+            placeholder="Shown next to the inquiry button for this work…"
           />
         </div>
       </section>
 
-      {/* visibility */}
-      <section className="space-y-4">
-        <h2 className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">
-          Visibility & Ordering
-        </h2>
-        <div className="space-y-2">
-          {[
-            { id: "galleryVisible", label: "Show in Gallery", checked: galleryVisible, onChange: setGalleryVisible },
-            { id: "purchaseVisible", label: "Show on Purchase page", checked: purchaseVisible, onChange: setPurchaseVisible },
-            { id: "featured", label: "Featured on home page", checked: featured, onChange: setFeatured },
-          ].map(({ id, label, checked, onChange }) => (
-            <label key={id} className="flex items-center gap-2 text-sm text-[var(--color-text)] cursor-pointer">
-              <input
-                type="checkbox"
-                id={id}
-                checked={checked}
-                onChange={(e) => onChange(e.target.checked)}
-                disabled={saving}
-                className="rounded border-[var(--color-border)]"
-              />
-              {label}
-            </label>
-          ))}
-        </div>
-        <div className="space-y-1.5 max-w-[120px]">
-          <Label htmlFor="displayOrder">Display Order</Label>
-          <Input
-            id="displayOrder"
-            type="number"
-            value={displayOrder}
-            onChange={(e) => setDisplayOrder(e.target.value)}
-            disabled={saving}
-            min={0}
-          />
-          <p className="text-xs text-[var(--color-muted)]">Lower = shown first</p>
-        </div>
+      <section className="space-y-3">
+        <h2 className={sectionTitle}>Visibility</h2>
+        {[
+          { id: "published", label: "Published — visible on the site", checked: published, onChange: setPublished },
+          { id: "featured", label: "Featured on the home page", checked: featured, onChange: setFeatured },
+        ].map(({ id, label, checked, onChange }) => (
+          <label key={id} className="flex items-center gap-2 text-sm text-[var(--color-text)] cursor-pointer">
+            <input
+              type="checkbox"
+              id={id}
+              checked={checked}
+              onChange={(e) => {
+                onChange(e.target.checked);
+                setMessage("");
+              }}
+              disabled={saving}
+            />
+            {label}
+          </label>
+        ))}
       </section>
 
-      {/* status */}
-      <section className="space-y-4">
-        <h2 className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">
-          Status
-        </h2>
-        <div className="flex gap-4">
-          {(["draft", "published"] as const).map((s) => (
-            <label key={s} className="flex items-center gap-2 text-sm text-[var(--color-text)] cursor-pointer">
-              <input
-                type="radio"
-                name="status"
-                value={s}
-                checked={status === s}
-                onChange={() => setStatus(s)}
-                disabled={saving}
-              />
-              {s.charAt(0).toUpperCase() + s.slice(1)}
-            </label>
-          ))}
-        </div>
-      </section>
+      {error && (
+        <p role="alert" className="text-sm text-red-600">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="text-sm text-emerald-700">
+          {message}
+        </p>
+      )}
 
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-
-      <Button type="submit" disabled={saving}>
+      <Button type="submit" disabled={busy}>
         {saving ? "Saving…" : "Save Artwork"}
       </Button>
     </form>

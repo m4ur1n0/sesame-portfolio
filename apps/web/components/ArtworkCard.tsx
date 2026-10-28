@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { mediaUrl } from "@/lib/api";
+import { mediaUrl } from "@/lib/media";
 import { AvailabilityBadge } from "@/components/AvailabilityBadge";
 import type { Artwork } from "@/lib/types";
 
@@ -9,9 +9,7 @@ interface Props {
 }
 
 export function ArtworkCard({ artwork, priority }: Props) {
-  const imgUrl = artwork.hero_media_id
-    ? mediaUrl(artwork.hero_media_id)
-    : null;
+  const img = artwork.images[0];
 
   return (
     <Link
@@ -20,11 +18,11 @@ export function ArtworkCard({ artwork, priority }: Props) {
     >
       {/* image area */}
       <div className="relative overflow-hidden bg-[var(--color-surface-raised)] aspect-[4/5]">
-        {imgUrl ? (
+        {img ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={imgUrl}
-            alt={artwork.title}
+            src={mediaUrl(img, "thumb")}
+            alt={img.alt || artwork.title}
             className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
             loading={priority ? "eager" : "lazy"}
             decoding="async"

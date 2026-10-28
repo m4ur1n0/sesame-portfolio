@@ -1,0 +1,36 @@
+// One Worker serves the whole site: Next.js (via OpenNext), D1 content, R2 images.
+// Secrets (not in this file) — set with `npx wrangler secret put <NAME>`:
+//   ADMIN_PASSWORD, SESSION_SECRET, TURNSTILE_SECRET_KEY
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sesame-portfolio",
+  "account_id": "bd506008bdd533d2ec760c280140513f",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": { "enabled": true },
+  "vars": {
+    // public by design; the widget only accepts the hostnames configured in the Turnstile dashboard
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFoye2kra8EwPNzR"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sesame-portfolio-db",
+      "database_id": "61f08d6f-ee0b-489d-b559-1f5575024017",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "sesame-portfolio-media"
+    }
+  ]
+}

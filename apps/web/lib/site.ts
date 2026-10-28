@@ -6,6 +6,8 @@ export type PaintScope = "all-pages" | "home-only" | "disabled";
 
 export const SITE = {
   paintEffectScope: "all-pages" as PaintScope,
+  // canonical address, used for social previews and the sitemap
+  url: "https://sesame-portfolio.thjmaurino.workers.dev",
   name: "Sesame Campbell",
   tagline: "Artist, Advisor, Advocate",
   bio: "Sesame Campbell is a fine artist from upstate New York, specializing in painting and colored pencil rendering.",

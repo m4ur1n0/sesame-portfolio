@@ -1,47 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useEffect } from "react";
+import Script from "next/script";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { submitContact } from "@/lib/api";
+import { submitInquiry, type ContactState } from "@/app/(public)/contact/actions";
 
-interface Props {
-  artworkRef?: string;
-  artworkTitle?: string;
+declare global {
+  interface Window {
+    turnstile?: { reset: () => void };
+  }
 }
 
-export function ContactForm({ artworkRef, artworkTitle }: Props) {
-  const [state, setState] = useState<"idle" | "loading" | "success" | "error">(
-    "idle",
-  );
-  const [error, setError] = useState("");
+interface Props {
+  turnstileSiteKey: string;
+  artwork?: { slug: string; title: string };
+}
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setState("loading");
-    setError("");
+export function ContactForm({ turnstileSiteKey, artwork }: Props) {
+  const [state, action, pending] = useActionState<ContactState, FormData>(submitInquiry, {
+    status: "idle",
+  });
 
-    const fd = new FormData(e.currentTarget);
-    try {
-      await submitContact({
-        name: (fd.get("name") as string).trim(),
-        email: (fd.get("email") as string).trim(),
-        subject: (fd.get("subject") as string | null)?.trim() || undefined,
-        message: (fd.get("message") as string).trim(),
-        artwork_ref: artworkRef,
-      });
-      setState("success");
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Something went wrong. Please try again.",
-      );
-      setState("error");
-    }
-  }
+  // a Turnstile token is single-use, so a failed submit needs a fresh one
+  useEffect(() => {
+    if (state.status === "error") window.turnstile?.reset();
+  }, [state]);
 
-  if (state === "success") {
+  const values = state.status === "error" ? state.values : undefined;
+
+  if (state.status === "sent") {
     return (
       <div className="rounded border border-emerald-200 bg-emerald-50 px-6 py-8 text-center">
         <p className="text-emerald-800 font-medium">Message sent.</p>
@@ -53,11 +43,14 @@ export function ContactForm({ artworkRef, artworkTitle }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-5">
-      {artworkTitle && (
+    <form action={action} className="space-y-5">
+      <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />
+
+      {artwork && (
         <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-4 py-3 text-sm text-[var(--color-muted)]">
           Inquiring about:{" "}
-          <span className="text-[var(--color-text)] font-medium">{artworkTitle}</span>
+          <span className="text-[var(--color-text)] font-medium">{artwork.title}</span>
+          <input type="hidden" name="artwork" value={artwork.slug} />
         </div>
       )}
 
@@ -68,9 +61,11 @@ export function ContactForm({ artworkRef, artworkTitle }: Props) {
             id="name"
             name="name"
             required
+            maxLength={200}
             autoComplete="name"
+            defaultValue={values?.name}
             placeholder="Your name"
-            disabled={state === "loading"}
+            disabled={pending}
           />
         </div>
         <div className="space-y-1.5">
@@ -80,9 +75,11 @@ export function ContactForm({ artworkRef, artworkTitle }: Props) {
             name="email"
             type="email"
             required
+            maxLength={320}
             autoComplete="email"
+            defaultValue={values?.email}
             placeholder="your@email.com"
-            disabled={state === "loading"}
+            disabled={pending}
           />
         </div>
       </div>
@@ -95,8 +92,10 @@ export function ContactForm({ artworkRef, artworkTitle }: Props) {
         <Input
           id="subject"
           name="subject"
+          maxLength={200}
+          defaultValue={values?.subject ?? (artwork ? `Inquiry: ${artwork.title}` : undefined)}
           placeholder="Purchase inquiry, commission, general question…"
-          disabled={state === "loading"}
+          disabled={pending}
         />
       </div>
 
@@ -106,25 +105,25 @@ export function ContactForm({ artworkRef, artworkTitle }: Props) {
           id="message"
           name="message"
           required
+          maxLength={5000}
           rows={5}
+          defaultValue={values?.message}
           placeholder="Write your message here…"
-          disabled={state === "loading"}
+          disabled={pending}
           className="resize-none"
         />
       </div>
 
-      {state === "error" && (
+      <div className="cf-turnstile" data-sitekey={turnstileSiteKey} data-theme="light" />
+
+      {state.status === "error" && (
         <p role="alert" className="text-sm text-red-600">
-          {error}
+          {state.error}
         </p>
       )}
 
-      <Button
-        type="submit"
-        disabled={state === "loading"}
-        className="w-full sm:w-auto"
-      >
-        {state === "loading" ? "Sending…" : "Send Message"}
+      <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+        {pending ? "Sending…" : "Send Message"}
       </Button>
     </form>
   );

@@ -2,10 +2,11 @@
 
 import { useEffect, useCallback } from "react";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
-import { mediaUrl } from "@/lib/api";
+import { mediaUrl } from "@/lib/media";
+import type { ArtworkImage } from "@/lib/types";
 
 interface Props {
-  keys: string[];
+  images: ArtworkImage[];
   currentIndex: number;
   alt: string;
   onClose: () => void;
@@ -14,7 +15,7 @@ interface Props {
 }
 
 export function Lightbox({
-  keys,
+  images,
   currentIndex,
   alt,
   onClose,
@@ -39,8 +40,8 @@ export function Lightbox({
     };
   }, [handleKey]);
 
-  const currentKey = keys[currentIndex];
-  if (!currentKey) return null;
+  const current = images[currentIndex];
+  if (!current) return null;
 
   return (
     <div
@@ -60,7 +61,7 @@ export function Lightbox({
       </button>
 
       {/* prev */}
-      {keys.length > 1 && (
+      {images.length > 1 && (
         <button
           aria-label="Previous image"
           className="absolute left-4 p-2 text-white/70 hover:text-white transition-colors"
@@ -76,15 +77,15 @@ export function Lightbox({
       {/* image */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={mediaUrl(currentKey)}
-        alt={alt}
+        src={mediaUrl(current, "large")}
+        alt={current.alt || alt}
         className="max-w-[90vw] max-h-[90vh] object-contain select-none"
         onClick={(e) => e.stopPropagation()}
         draggable={false}
       />
 
       {/* next */}
-      {keys.length > 1 && (
+      {images.length > 1 && (
         <button
           aria-label="Next image"
           className="absolute right-4 p-2 text-white/70 hover:text-white transition-colors"
@@ -98,9 +99,9 @@ export function Lightbox({
       )}
 
       {/* counter */}
-      {keys.length > 1 && (
+      {images.length > 1 && (
         <p className="absolute bottom-4 inset-x-0 text-center text-xs text-white/50">
-          {currentIndex + 1} / {keys.length}
+          {currentIndex + 1} / {images.length}
         </p>
       )}
     </div>

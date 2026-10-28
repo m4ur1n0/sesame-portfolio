@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
-import type { ArtworkAvailability } from "@/lib/types";
+import type { Availability } from "@/lib/types";
 
-const labels: Record<ArtworkAvailability, string> = {
+export const labels: Record<Availability, string> = {
   available: "Available",
   sold: "Sold",
   reserved: "Reserved",
@@ -9,7 +9,7 @@ const labels: Record<ArtworkAvailability, string> = {
   inquire: "Inquire",
 };
 
-const styles: Record<ArtworkAvailability, string> = {
+const styles: Record<Availability, string> = {
   available:
     "bg-emerald-50 text-emerald-800 border-emerald-200",
   sold: "bg-[var(--color-surface-raised)] text-[var(--color-muted)] border-[var(--color-border)]",
@@ -22,7 +22,7 @@ const styles: Record<ArtworkAvailability, string> = {
 };
 
 interface Props {
-  availability: ArtworkAvailability;
+  availability: Availability;
   className?: string;
 }
 
